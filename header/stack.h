@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <malloc.h>
 #include "debug.h"
+#include <assert.h>
 
 typedef int Stack_data;
 typedef long long int Canary_data;
@@ -45,4 +46,4 @@ Stack_data stack_pop(Stack* stack);
 stack_status stack_resize(Stack* stack);
 stack_status stack_destruct(Stack* stack);
 void stack_data_print(Stack* stack);
-void print_size_info(Stack* stack);
+void print_size_info(Stack* stack, FILE* file);

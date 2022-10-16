@@ -5,6 +5,8 @@
 #define max(x, y) ((x) > (y)) ? (x) : (y)
 
 static Canary_data CANARY = 0x000DEAD000;
+Stack_data INVALID_VALUE = 0x00FE00;
+
 
 
 
@@ -23,7 +25,6 @@ static char* stack_get_data_base_ptr(Stack* stack) {
 
 
 
-
 static Stack_data* get_ptr_to_element(Stack* stack, long long int position) {
 
     char* data = stack_get_data_base_ptr(stack);
@@ -36,6 +37,83 @@ static Stack_data get_element(Stack* stack, long long int position) {
     
     return *get_ptr_to_element(stack, position);
 } 
+
+
+static stack_status light_stack_check_status(Stack* stack) {
+
+    int status = SUCCESS;
+
+    if (stack->capacity < stack->element_count)
+        status |= STACK_OVERFLOW;
+    if (!stack)
+        status |= STACK_NULL;
+    if (!stack->data)
+        status |= DATA_NULL;
+
+    return status;
+}
+
+static unsigned long long int stack_hash(Stack* stack);
+
+static stack_status stack_check_hash(Stack* stack) {
+
+    if (!stack)
+        return STACK_NULL;
+
+    unsigned long int correct_stack_hash = stack->hash;
+    unsigned long int actual_stack_hash = stack_hash(stack);
+
+    return (actual_stack_hash == correct_stack_hash) ? SUCCESS : INVALID_HASH;
+}
+
+static stack_status stack_check_canaries(Stack* stack) {
+
+    stack_status status = SUCCESS;
+    
+    if (*stack->left_canary_position != CANARY) status|=DAMAGED_LEFT_CANARY;
+    if (*stack->right_canary_position != CANARY) status|=DAMAGED_RIGHT_CANARY;
+
+    return status;
+}
+
+static stack_status stack_check_status(Stack *stack) {
+
+    int status = SUCCESS;
+
+    status |= light_stack_check_status(stack);
+    if (status) return status;
+    status |= stack_check_canaries(stack);
+    status |= stack_check_hash(stack);
+
+    return status;
+}
+
+void stack_dump(Stack* stack, const char* file, const char* func, int line, stack_status status);
+
+static stack_status stack_assert_invariants(Stack* stack, const char* file, const char* func, int line) {
+
+    stack_status status = SUCCESS;
+
+    if (!stack)
+        status = STACK_NULL;
+    if (status) {
+        stack_dump(stack, file, func, line, status);
+        return status;
+    }
+
+    status = stack_check_status(stack);
+
+    if (status) {
+        stack_dump(stack, file, func, line, status);
+        // print_error + dump
+    }
+
+    return status;
+}
+
+#define stack_assert_invariants(stack) stack_assert_invariants(stack, __FILE__, __func__, __LINE__)
+
+
 
 
 
@@ -58,9 +136,9 @@ static stack_status stack_change_length(Stack* stack, double multiplier) {
     return 0;
 }
 
-void print_size_info(Stack* stack) {
-    printf("capacity: %ld\n", stack->capacity);
-    printf("num of elements: %ld\n", stack->element_count);
+void print_size_info(Stack* stack, FILE* file) {
+    fprintf(file, "capacity: %ld\n", stack->capacity);
+    fprintf(file, "num of elements: %ld\n", stack->element_count);
 }
 
 
@@ -78,7 +156,6 @@ static stack_status stack_length_down(Stack* stack) {
 }
 
 
-
 static Canary_data* get_left_canary_position(Stack* stack) {
     return (Canary_data*)stack->data;
 }
@@ -87,42 +164,17 @@ static Canary_data* get_right_canary_position(Stack* stack) {
     return (Canary_data*)(stack->data + sizeof(Stack_data) * stack->capacity + sizeof(Canary_data));
 }
 
-
-//что-то с канарейками я рот их ебала давайте работайте блять твари
-static void print_canaries(Stack* stack) {
-
-    printf("left_canary: %llx\n", *stack->left_canary_position);
-    printf("right_canary: %llx\n", *stack->right_canary_position);
+static void print_canaries(Stack* stack, FILE* file) {
+    
+    fprintf(file, "left_canary: %llx\n", *stack->left_canary_position);
+    fprintf(file, "right_canary: %llx\n", *stack->right_canary_position);
 }
+
 static stack_status set_canaries(Stack* stack){
-    if (0) {
 
     *stack->left_canary_position = *stack->right_canary_position = CANARY;
-    print_canaries(stack);
-    }
     return SUCCESS;
 }
-
-// #define get_c() 
-// ({
-//     Canary_data* left_canary = NULL; 
-//     Canary_data* right_canary = NULL;
-//     get_canaries_positions(stack, &left_canary,  &right_canary);
-// }) :((((((((((((((((((
-
-
-
-static stack_status stack_check_canaries(Stack* stack) {
-
-    stack_status status = SUCCESS;
-    
-    if (*stack->left_canary_position != CANARY) status|=DAMAGED_LEFT_CANARY;
-    if (*stack->right_canary_position != CANARY) status|=DAMAGED_RIGHT_CANARY;
-
-    return status;
-}
-
-
 
 static unsigned long int gnu_hash(void* data, size_t size) {
 
@@ -136,7 +188,7 @@ static unsigned long int gnu_hash(void* data, size_t size) {
     return 0;
 }
 
-static unsigned long int stack_hash(Stack* stack) {
+static unsigned long long int stack_hash(Stack* stack) {
 
     int data_hash = gnu_hash(stack_get_data_base_ptr(stack), stack->capacity * sizeof(Stack_data));
     int struct_hash = gnu_hash(stack, sizeof(Stack));
@@ -151,17 +203,6 @@ static int stack_rehash(Stack* stack) {
     return SUCCESS;
 }
 
-static int stack_check_hash(Stack* stack) {
-
-    if (!stack)
-        return STACK_NULL;
-
-    unsigned long int correct_stack_hash = stack->hash;
-    unsigned long int actual_stack_hash = stack_hash(stack);
-
-    return (actual_stack_hash == correct_stack_hash) ? SUCCESS : INVALID_HASH;
-}
-
 
 void stack_data_print(Stack* stack) {
 
@@ -173,9 +214,9 @@ void stack_data_print(Stack* stack) {
 }
 
 
-
 stack_status stack_init(Stack* stack, size_t length) {
-    //(Stack*)
+
+    if (!stack) return STACK_NULL;
     *stack = (Stack){
         .capacity = length,
         .min_capacity = length,
@@ -187,22 +228,21 @@ stack_status stack_init(Stack* stack, size_t length) {
     };
 
    
-    printf("___init_stack: %p\n", stack);
-    printf("___init_data: %p\n", stack->data);
+    debug_msg(INFO_, printf("___init_stack: %p\n", stack));
+    debug_msg(INFO_, printf("___init_data: %p\n", stack->data));
     
 
-    set_canaries(stack);
+
     stack->left_canary_position = get_left_canary_position(stack);
     stack->right_canary_position = get_right_canary_position(stack);
-
+    set_canaries(stack);
 
     stack_rehash(stack);
-    //print_canaries(stack);
-    // hash + canaries
-    //(stack)
+    debug_msg(INFO_, print_canaries(stack, stdout));
+
+    stack_assert_invariants(stack);
     return 0;
 }
-
 
 stack_status stack_push(Stack* stack, Stack_data element) {
 
@@ -210,7 +250,6 @@ stack_status stack_push(Stack* stack, Stack_data element) {
 
     *get_ptr_to_element(stack, stack->element_count++) = element;
 
-    //stack_data_print(stack);
     stack_rehash(stack);
 
     return 0;
@@ -218,8 +257,15 @@ stack_status stack_push(Stack* stack, Stack_data element) {
 
 Stack_data stack_pop(Stack* stack) {
 
-    Stack_data last_element = get_element(stack, stack->element_count--);
+    if (get_stack_occupancy_status(stack) == EMPTY) {
+        stack_dump(stack, __FILE__, __func__, __LINE__, EMPTY_STACK);
+        abort();
+    }
+    stack_assert_invariants(stack);
 
+    Stack_data last_element = get_element(stack, stack->element_count--);
+    
+    stack_resize(stack);
     stack_rehash(stack);
 
     return last_element;
@@ -237,7 +283,7 @@ stack_status stack_resize(Stack* stack) {
         puts("length down!");
         stack_length_down(stack);
     }
-
+    //print_size_info(stack, stdout);
     set_canaries(stack);
     stack->left_canary_position = get_left_canary_position(stack);
     stack->right_canary_position = get_right_canary_position(stack);
@@ -259,4 +305,65 @@ stack_status stack_destruct(Stack* stack) {
         .data = NULL,};
 
     return SUCCESS;
+}
+
+
+void stack_dump(Stack* stack, const char* file, const char* func, int line, stack_status status) {
+
+
+    debug_msg(INFO_, printf("DUMP was called from %s :: %s :: %d\n", file, func, line));
+
+    FILE* dump_file = fopen("dump.txt", "w");
+    assert(dump_file && "opening file error");
+
+    fprintf(dump_file, "DUMP was called from %s :: %s :: %d\n", file, func, line);
+
+    fprintf(dump_file, "The stack address: [%p]\n", stack);
+
+    if (status & STACK_NULL) { 
+
+        fprintf(dump_file, "Dump aborted, stack has NULL pointer");
+        fclose(dump_file);
+        abort();
+    }
+
+    fprintf(dump_file, "The data begining address: [%p]\n", stack->data);
+
+    if (status & DATA_NULL) {
+
+        fprintf(dump_file, "Dump aborted, data has NULL pointer\n");
+        fclose(dump_file);
+        abort();
+    }
+
+
+    if (status & EMPTY_STACK) {
+
+        fprintf(dump_file, "Dump aborted, removing element from empty stack!\n");
+        print_size_info(stack, dump_file);
+    }
+
+    if (status & STACK_OVERFLOW) {
+
+        fprintf(dump_file, "StackOverflow!\n");
+        print_size_info(stack, dump_file);
+    }
+
+    if (status & INVALID_HASH) {
+
+        fprintf(dump_file, "Dump aborted, hash was damaged!\n");
+        fprintf(dump_file, "Stack hash: %llu\n", stack->hash);
+        fprintf(dump_file, "Actual hash: %llu\n", stack_hash(stack));
+    }
+
+    if (status & DAMAGED_LEFT_CANARY || status & DAMAGED_RIGHT_CANARY) {
+
+        fprintf(dump_file, "Dump aborted, damaged either or both canaries!\n");
+        print_canaries(stack, dump_file);
+    }
+
+
+    fclose(dump_file), dump_file = NULL;
+
+    return;
 }

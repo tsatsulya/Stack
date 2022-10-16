@@ -1,0 +1,6 @@
+DUMP was called from source/stack.c :: stack_pop :: 261
+The stack address: [0x7ffd444ba400]
+The data begining address: [0xc5d2a0]
+Dump aborted, removing element from empty stack!
+capacity: 5
+num of elements: 0

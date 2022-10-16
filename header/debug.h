@@ -12,7 +12,7 @@ enum debug_modes {
 };
 
 
-#define DEBUG_MODE DEBUG_
+#define DEBUG_MODE ERROR_
 // TODO: maybe debug_exec
 #define debug_msg(mode, my_func)                            \
     ({                                                      \
